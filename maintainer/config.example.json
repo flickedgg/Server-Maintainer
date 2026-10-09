@@ -89,7 +89,15 @@
     // How long to wait for the server to save and exit after asking it to stop
     // (SIGINT on Linux, RCON "quit" on Windows) before killing it.
     // On Linux keep it below TimeoutStopSec in the systemd unit (60s).
-    "stop_timeout": "30s"
+    "stop_timeout": "30s",
+
+    // Windows only (ignored on Linux). true: the server opens its own console
+    // window, like running it from a .bat file. You see its output there and
+    // can type server commands into it. false: no window; its output is captured
+    // into logs/server.log instead, and the maintainer can also spot the
+    // server's own "restart for update" notice in it. (Steam news and SteamCMD
+    // checks catch updates either way.)
+    "console_window": true
   },
 
   // ---------------------------------------------------------------------------
@@ -216,6 +224,13 @@
     "max_size_mb": 20,
 
     // How many old files to keep per log.
-    "max_files": 5
+    "max_files": 5,
+
+    // When the server's output is captured (always on Linux; on Windows when
+    // server.console_window is false), also show it in the maintainer's window,
+    // each line prefixed with [cs2]. It is written to server.log either way.
+    // Set to false to keep the window to the maintainer's own messages (for
+    // example under systemd, so the journal doesn't get a second copy).
+    "show_server_output": true
   }
 }

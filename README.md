@@ -66,6 +66,7 @@ See [`maintainer/config.example.json`](maintainer/config.example.json) for every
 |---|---|
 | `server.args` | Extra launch args (map, game mode, ...). `-dedicated`, `-port`, `-usercon`, the RCON password and the GSLT are added for you. |
 | `server.rcon_password` | Used for clean shutdown on Windows and for countdown messages. Strongly recommended. |
+| `server.console_window` | Windows: the server gets its own console window, like a `.bat` (default). You see its output and can type commands there. Set to `false` to capture its output into `logs/server.log` instead. |
 | `update.window` | Daily window (`start`/`end`, local time, may cross midnight) when updates install even with players online. |
 | `update.max_defer` | Longest an update waits for an empty server. After an update, outdated servers reject updated clients, so don't wait forever. `"0s"` = no limit. |
 | `update.validate` | Validate all files on every update. Off by default because validation is slow; it always runs after a failed update. |

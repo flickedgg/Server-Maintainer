@@ -29,6 +29,7 @@ func TestLaunchServerHealthAndCleanStop(t *testing.T) {
 	cfg.Server.Binary = exe
 	cfg.Server.Port = freePort(t)
 	cfg.Server.RCONPassword = "pw"
+	cfg.Server.ConsoleWindow = false // capture output so it can be checked
 
 	var mu sync.Mutex
 	var lines []string
@@ -68,6 +69,59 @@ func TestLaunchServerHealthAndCleanStop(t *testing.T) {
 	if !strings.Contains(joined, "fake server ready on port "+strconv.Itoa(cfg.Server.Port)) ||
 		!strings.Contains(joined, "saving and exiting") {
 		t.Errorf("console output not captured: %q", joined)
+	}
+}
+
+// On Windows the server runs in its own console window by default, like a .bat
+// file. Output isn't captured then, but health checks and the clean RCON stop
+// must work the same.
+func TestLaunchServerInOwnConsoleWindow(t *testing.T) {
+	cfg := core.DefaultConfig()
+	if !cfg.UsesConsoleWindow() {
+		t.Skip("separate console windows are Windows-only")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CS2M_FAKE_SERVER", "1")
+	if err := core.InitProcessJob(); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Server.Binary = exe
+	cfg.Server.Port = freePort(t)
+	cfg.Server.RCONPassword = "pw"
+
+	p, err := core.LaunchServer(cfg, discardLogger(), func(l string) {
+		t.Errorf("output should go to the server's own window, got %q", l)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "fake server to answer A2S", func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		_, err := core.QueryA2SInfo(ctx, cfg.QueryAddr())
+		return err == nil
+	})
+	start := time.Now()
+	if err := p.Stop(5 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 3*time.Second {
+		t.Errorf("stop took %s; the graceful path was not used", took)
+	}
+	if p.Err() != nil {
+		t.Errorf("exit error %v; it should have exited cleanly", p.Err())
+	}
+}
+
+func TestIsConsoleNoise(t *testing.T) {
+	if !core.IsConsoleNoise("CTextConsoleWin::GetLine: !GetNumberOfConsoleInputEvents") {
+		t.Error("the Windows console input spam should be filtered")
+	}
+	if core.IsConsoleNoise("Loaded map de_mirage") {
+		t.Error("filtered a real line")
 	}
 }
 

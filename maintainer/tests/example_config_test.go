@@ -17,20 +17,22 @@ func TestExampleConfigLoadsAndMatchesDefaults(t *testing.T) {
 	}
 	def := core.DefaultConfig()
 	checks := map[string][2]any{
-		"health":               {cfg.Health, def.Health},
-		"restart.backoff":      {cfg.Restart.BackoffMin, def.Restart.BackoffMin},
-		"restart.stable_after": {cfg.Restart.StableAfter, def.Restart.StableAfter},
-		"restart.min_uptime":   {cfg.Restart.MinUptime, def.Restart.MinUptime},
-		"news":                 {cfg.News, def.News},
-		"log.level":            {cfg.Log.Level, def.Log.Level},
-		"log.max_size_mb":      {cfg.Log.MaxSizeMB, def.Log.MaxSizeMB},
-		"log.max_files":        {cfg.Log.MaxFiles, def.Log.MaxFiles},
-		"server.port":          {cfg.Server.Port, def.Server.Port},
-		"server.stop_timeout":  {cfg.Server.StopTimeout, def.Server.StopTimeout},
-		"update.max_defer":     {cfg.Update.MaxDefer, def.Update.MaxDefer},
-		"update.warn_before":   {cfg.Update.WarnBefore, def.Update.WarnBefore},
-		"update.check":         {cfg.Update.CheckInterval, def.Update.CheckInterval},
-		"update.validate":      {cfg.Update.Validate, def.Update.Validate},
+		"health":                {cfg.Health, def.Health},
+		"restart.backoff":       {cfg.Restart.BackoffMin, def.Restart.BackoffMin},
+		"restart.stable_after":  {cfg.Restart.StableAfter, def.Restart.StableAfter},
+		"restart.min_uptime":    {cfg.Restart.MinUptime, def.Restart.MinUptime},
+		"news":                  {cfg.News, def.News},
+		"log.level":             {cfg.Log.Level, def.Log.Level},
+		"log.max_size_mb":       {cfg.Log.MaxSizeMB, def.Log.MaxSizeMB},
+		"log.max_files":         {cfg.Log.MaxFiles, def.Log.MaxFiles},
+		"log.show_server":       {cfg.Log.ShowServerOutput, def.Log.ShowServerOutput},
+		"server.port":           {cfg.Server.Port, def.Server.Port},
+		"server.stop_timeout":   {cfg.Server.StopTimeout, def.Server.StopTimeout},
+		"server.console_window": {cfg.Server.ConsoleWindow, def.Server.ConsoleWindow},
+		"update.max_defer":      {cfg.Update.MaxDefer, def.Update.MaxDefer},
+		"update.warn_before":    {cfg.Update.WarnBefore, def.Update.WarnBefore},
+		"update.check":          {cfg.Update.CheckInterval, def.Update.CheckInterval},
+		"update.validate":       {cfg.Update.Validate, def.Update.Validate},
 	}
 	for name, c := range checks {
 		got, _ := json.Marshal(c[0])

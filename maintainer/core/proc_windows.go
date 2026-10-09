@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strconv"
@@ -17,7 +18,72 @@ var (
 	procCreateJobObjectW         = kernel32.NewProc("CreateJobObjectW")
 	procSetInformationJobObject  = kernel32.NewProc("SetInformationJobObject")
 	procAssignProcessToJobObject = kernel32.NewProc("AssignProcessToJobObject")
+	procResumeThread             = kernel32.NewProc("ResumeThread")
 )
+
+const ownConsoleSupported = true
+
+const (
+	createNewConsole = 0x00000010
+	createSuspended  = 0x00000004
+)
+
+// startInOwnConsole starts the server in a new console window of its own, like
+// running it from a .bat file: its output shows there and admins can type
+// server commands into it. os/exec can't do this, because it always redirects
+// the child's stdin/stdout, and CS2's console then fails on every input poll
+// ("CTextConsoleWin::GetLine: !GetNumberOfConsoleInputEvents").
+//
+// The process starts suspended and is put in the kill-on-close job before it
+// runs, so it can never outlive the maintainer, even if we die right here.
+func startInOwnConsole(bin string, args []string, dir, title string, log *slog.Logger) (*os.Process, error) {
+	cmdline := syscall.EscapeArg(bin)
+	for _, a := range args {
+		cmdline += " " + syscall.EscapeArg(a)
+	}
+	appP, err := syscall.UTF16PtrFromString(bin)
+	if err != nil {
+		return nil, err
+	}
+	cmdP, err := syscall.UTF16PtrFromString(cmdline)
+	if err != nil {
+		return nil, err
+	}
+	dirP, err := syscall.UTF16PtrFromString(dir)
+	if err != nil {
+		return nil, err
+	}
+	titleP, err := syscall.UTF16PtrFromString(title)
+	if err != nil {
+		return nil, err
+	}
+	si := &syscall.StartupInfo{Title: titleP}
+	si.Cb = uint32(unsafe.Sizeof(*si))
+	var pi syscall.ProcessInformation
+	if err := syscall.CreateProcess(appP, cmdP, nil, nil, false,
+		createNewConsole|createSuspended, nil, dirP, si, &pi); err != nil {
+		return nil, fmt.Errorf("CreateProcess: %w", err)
+	}
+	defer syscall.CloseHandle(pi.Thread)
+	defer syscall.CloseHandle(pi.Process)
+
+	if serverJob != 0 {
+		if r, _, err := procAssignProcessToJobObject.Call(uintptr(serverJob), uintptr(pi.Process)); r == 0 {
+			log.Warn("could not tie server lifetime to the maintainer; it may outlive a maintainer crash", "err", err)
+		}
+	}
+	if r, _, err := procResumeThread.Call(uintptr(pi.Thread)); r == 0xFFFFFFFF {
+		syscall.TerminateProcess(pi.Process, 1)
+		return nil, fmt.Errorf("ResumeThread: %w", err)
+	}
+	// Our handle is still open, so the PID can't have been reused yet.
+	proc, err := os.FindProcess(int(pi.ProcessId))
+	if err != nil {
+		syscall.TerminateProcess(pi.Process, 1)
+		return nil, err
+	}
+	return proc, nil
+}
 
 const (
 	jobObjectExtendedLimitInformationClass = 9

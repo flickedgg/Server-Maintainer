@@ -108,6 +108,9 @@ type ServerConfig struct {
 	RCONPassword string   `json:"rcon_password"`
 	GSLT         string   `json:"gslt"`
 	StopTimeout  Duration `json:"stop_timeout"`
+	// ConsoleWindow (Windows only) runs the server in its own console window,
+	// like a .bat file, instead of capturing its output into server.log.
+	ConsoleWindow bool `json:"console_window"`
 }
 
 type HealthConfig struct {
@@ -150,6 +153,9 @@ type LogConfig struct {
 	Level     string `json:"level"`
 	MaxSizeMB int    `json:"max_size_mb"`
 	MaxFiles  int    `json:"max_files"`
+	// ShowServerOutput also prints the CS2 console to the maintainer's console,
+	// prefixed with [cs2]. It always goes to server.log either way.
+	ShowServerOutput bool `json:"show_server_output"`
 }
 
 func DefaultConfig() *Config {
@@ -158,9 +164,10 @@ func DefaultConfig() *Config {
 		Branch:    "public",
 		StateFile: "state.json",
 		Server: ServerConfig{
-			Port:        27015,
-			QueryHost:   "127.0.0.1",
-			StopTimeout: Duration{30 * time.Second},
+			Port:          27015,
+			QueryHost:     "127.0.0.1",
+			StopTimeout:   Duration{30 * time.Second},
+			ConsoleWindow: true,
 		},
 		Health: HealthConfig{
 			Interval:         Duration{15 * time.Second},
@@ -189,10 +196,11 @@ func DefaultConfig() *Config {
 			MaxAge:   Duration{6 * time.Hour},
 		},
 		Log: LogConfig{
-			Dir:       "logs",
-			Level:     "info",
-			MaxSizeMB: 20,
-			MaxFiles:  5,
+			Dir:              "logs",
+			Level:            "info",
+			MaxSizeMB:        20,
+			MaxFiles:         5,
+			ShowServerOutput: true,
 		},
 	}
 }

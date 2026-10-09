@@ -13,7 +13,7 @@ import (
 
 // ServerProcess is one running instance of the CS2 dedicated server.
 type ServerProcess struct {
-	cmd          *exec.Cmd
+	proc         *os.Process
 	started      time.Time
 	done         chan struct{}
 	err          error // set before done is closed
@@ -22,41 +22,76 @@ type ServerProcess struct {
 	log          *slog.Logger
 }
 
-// LaunchServer starts the server and calls onLine for every console line it prints.
-// onLine runs on the output-copying goroutine, so it must not block.
+// UsesConsoleWindow reports whether the server gets its own console window
+// instead of having its output captured. Only Windows supports it.
+func (c *Config) UsesConsoleWindow() bool {
+	return ownConsoleSupported && c.Server.ConsoleWindow
+}
+
+// LaunchServer starts the server. With a console window (Windows), CS2 prints
+// to that window and onLine is never called. Otherwise onLine gets every
+// console line; it runs on the output-copying goroutine, so it must not block.
 func LaunchServer(cfg *Config, log *slog.Logger, onLine func(string)) (*ServerProcess, error) {
 	bin := cfg.ServerBinary()
 	if _, err := os.Stat(bin); err != nil {
 		return nil, fmt.Errorf("server binary: %w", err)
 	}
 	args := cfg.ServerArgs()
-	cmd := exec.Command(bin, args...)
-	cmd.Dir = filepath.Dir(bin)
-	out := NewLineWriter(onLine)
-	cmd.Stdout, cmd.Stderr = out, out
-	// If the server leaves a child holding the pipes, don't hang in Wait forever.
-	cmd.WaitDelay = 5 * time.Second
-	configureServerCmd(cmd)
+	dir := filepath.Dir(bin)
 
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("starting server: %w", err)
-	}
-	if err := bindServerLifetime(cmd.Process); err != nil {
-		log.Warn("could not tie server lifetime to the maintainer; it may outlive a maintainer crash", "err", err)
+	var proc *os.Process
+	var wait func() error
+	if cfg.UsesConsoleWindow() {
+		title := fmt.Sprintf("CS2 server :%d (managed by cs2-maintainer)", cfg.Server.Port)
+		p, err := startInOwnConsole(bin, args, dir, title, log)
+		if err != nil {
+			return nil, fmt.Errorf("starting server: %w", err)
+		}
+		proc = p
+		wait = func() error {
+			state, err := p.Wait()
+			if err != nil {
+				return err
+			}
+			if !state.Success() {
+				return fmt.Errorf("exit status %d", state.ExitCode())
+			}
+			return nil
+		}
+	} else {
+		cmd := exec.Command(bin, args...)
+		cmd.Dir = dir
+		out := NewLineWriter(onLine)
+		cmd.Stdout, cmd.Stderr = out, out
+		// If the server leaves a child holding the pipes, don't hang in Wait forever.
+		cmd.WaitDelay = 5 * time.Second
+		configureServerCmd(cmd)
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("starting server: %w", err)
+		}
+		if err := bindServerLifetime(cmd.Process); err != nil {
+			log.Warn("could not tie server lifetime to the maintainer; it may outlive a maintainer crash", "err", err)
+		}
+		proc = cmd.Process
+		wait = func() error {
+			err := cmd.Wait()
+			out.Flush()
+			return err
+		}
 	}
 
 	p := &ServerProcess{
-		cmd:          cmd,
+		proc:         proc,
 		started:      time.Now(),
 		done:         make(chan struct{}),
 		rconAddr:     cfg.QueryAddr(),
 		rconPassword: cfg.Server.RCONPassword,
 		log:          log,
 	}
-	log.Info("server started", "pid", cmd.Process.Pid, "cmd", bin+" "+strings.Join(RedactArgs(args), " "))
+	log.Info("server started", "pid", proc.Pid, "console_window", cfg.UsesConsoleWindow(),
+		"cmd", bin+" "+strings.Join(RedactArgs(args), " "))
 	go func() {
-		p.err = cmd.Wait()
-		out.Flush()
+		p.err = wait()
 		close(p.done)
 	}()
 	return p, nil
@@ -87,7 +122,7 @@ func (p *ServerProcess) Stop(timeout time.Duration) error {
 			p.log.Warn("server did not stop in time; killing it", "timeout", timeout)
 		}
 	}
-	if err := p.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	if err := p.proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		p.log.Error("killing server", "err", err)
 	}
 	select {

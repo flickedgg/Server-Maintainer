@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -124,6 +125,23 @@ func SetupLogging(cfg LogConfig) (*slog.Logger, *RotatingFile, func(), error) {
 func WriteConsoleLine(w io.Writer, line string) {
 	buf := make([]byte, 0, len(line)+21)
 	buf = time.Now().AppendFormat(buf, "2006-01-02 15:04:05 ")
+	buf = append(buf, line...)
+	buf = append(buf, '\n')
+	w.Write(buf)
+}
+
+// IsConsoleNoise matches console lines that carry no information. CS2 on Windows
+// prints "CTextConsoleWin::GetLine: !GetNumberOfConsoleInputEvents" in a loop
+// when its input isn't a real console (server.console_window is false).
+func IsConsoleNoise(line string) bool {
+	return strings.Contains(line, "CTextConsoleWin::GetLine")
+}
+
+// EchoServerLine prints one server console line to w with a [cs2] prefix, in a
+// single write so it doesn't interleave with the maintainer's own log lines.
+func EchoServerLine(w io.Writer, line string) {
+	buf := make([]byte, 0, len(line)+7)
+	buf = append(buf, "[cs2] "...)
 	buf = append(buf, line...)
 	buf = append(buf, '\n')
 	w.Write(buf)

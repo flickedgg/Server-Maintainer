@@ -97,7 +97,13 @@ func run() int {
 		updater.EnsureSteamClientSDK()
 		ensureGameInfo(cfg, log, notifier, &lastGameInfoErr)
 		p, err := core.LaunchServer(cfg, log, func(line string) {
+			if core.IsConsoleNoise(line) {
+				return
+			}
 			core.WriteConsoleLine(serverLog, line)
+			if cfg.Log.ShowServerOutput {
+				core.EchoServerLine(os.Stdout, line)
+			}
 			if core.IsUpdateHint(line) {
 				ctrl.Hint("The server reported that a new CS2 build is out.")
 			}
@@ -110,6 +116,9 @@ func run() int {
 
 	log.Info("cs2-maintainer starting", "version", version, "os", runtime.GOOS,
 		"install_dir", cfg.InstallDir, "port", cfg.Server.Port, "updates", cfg.Update.Enabled)
+	if cfg.UsesConsoleWindow() {
+		log.Info("the CS2 console runs in its own window, so server.log isn't written; set server.console_window to false to capture it")
+	}
 	notifier.Notify(core.Event{Level: core.LevelInfo, Title: "CS2 maintainer started",
 		Text: fmt.Sprintf("Managing the server on port %d.", cfg.Server.Port)})
 
