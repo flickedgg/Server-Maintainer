@@ -120,12 +120,18 @@ jobs:
         with:
           path: packages
           merge-multiple: true
-      - name: Create the GitHub release
+      # The release may already exist if it was created on github.com (Releases >
+      # Draft a new release), which also creates the tag. Then just attach the files.
+      - name: Create the GitHub release or add the packages to it
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" packages/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" packages/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" packages/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
