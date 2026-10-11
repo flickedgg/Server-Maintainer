@@ -1,0 +1,21 @@
+[Unit]
+Description=CS2 Server Maintainer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cs2
+WorkingDirectory=/opt/cs2-maintainer
+ExecStart=/opt/cs2-maintainer/cs2-maintainer -config /opt/cs2-maintainer/config.json
+# Keep secrets out of config.json if you prefer:
+# Environment=CS2M_RCON_PASSWORD=changeme
+# Environment=CS2M_GSLT=yourtoken
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+# Must exceed server.stop_timeout so the server gets to save before systemd kills it.
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

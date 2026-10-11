@@ -1,0 +1,8 @@
+# Local config holds secrets (RCON password, GSLT, webhook). Commit config.example.json instead.
+config.json
+state.json
+state.json.*
+logs/
+dist/
+cs2-maintainer
+cs2-maintainer.exe

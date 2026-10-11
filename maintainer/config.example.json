@@ -1,0 +1,236 @@
+// CS2 Server Maintainer configuration.
+//
+// Copy this file to config.json and edit it. Comments (// and /* */) are allowed.
+// Only install_dir and steamcmd_path are required; every other key can be left
+// out and falls back to the default value shown here.
+//
+// Formats:
+//   - Durations are strings: "500ms", "15s", "10m", "1h30m".
+//   - Times of day are local server time, "HH:MM" in 24-hour format, such as "04:00".
+//   - Relative paths are resolved against the folder this file is in.
+//   - Unknown keys are an error, so a typo is reported instead of silently ignored.
+//
+// Check the file without starting anything:  cs2-maintainer -validate -config config.json
+{
+  // Folder of the CS2 dedicated server install (the one containing "game/").
+  // If CS2 isn't installed there yet, the first run downloads it with SteamCMD.
+  // Windows example: "C:/cs2-server"
+  "install_dir": "/home/cs2/cs2-server",
+
+  // SteamCMD executable: steamcmd.sh on Linux, steamcmd.exe on Windows.
+  // A bare name such as "steamcmd" is looked up on PATH.
+  // Windows example: "C:/Steam/steamcmd.exe"
+  "steamcmd_path": "/home/cs2/steamcmd/steamcmd.sh",
+
+  // Steam app ID of the CS2 dedicated server. Leave at 730.
+  "app_id": 730,
+
+  // Steam branch to install and follow. "public" is the normal release; use a
+  // beta name only if you run a beta server.
+  "branch": "public",
+
+  // Where the maintainer remembers the installed build, the last handled news
+  // post and some counters. A lock file (state.json.lock) is created next to it,
+  // so two maintainers can't manage the same server at once.
+  "state_file": "state.json",
+
+  // Discord webhook for ADMIN alerts. Leave empty to disable.
+  //   - Maintainer: started, stopped, failed (including crashes of the maintainer itself).
+  //   - Server: crashed, crash-looping, unresponsive and restarted, back up, scheduled restart.
+  //   - Updates: announced, available, restarting to install, installed, failed.
+  //   - gameinfo.gi patched or failed to patch.
+  // Must be https. Can also be set with the CS2M_DISCORD_WEBHOOK environment variable.
+  "discord_webhook": "",
+
+  // Search paths kept in game/csgo/gameinfo.gi. CS2 updates (and SteamCMD
+  // "validate") replace that file, which removes lines such as
+  // "Game csgo/addons/metamod" and with them all your plugins. Before every
+  // server start, each path listed here is re-added as a "Game" line right after
+  // "Game_LowViolence". Use [] if you run no mods.
+  "gameinfo_search_paths": ["csgo/addons/metamod"],
+
+  // ---------------------------------------------------------------------------
+  // The CS2 server process.
+  // ---------------------------------------------------------------------------
+  "server": {
+    // Path to the server executable. Leave "" to use the standard location:
+    //   Linux:   <install_dir>/game/bin/linuxsteamrt64/cs2
+    //   Windows: <install_dir>/game/bin/win64/cs2.exe
+    "binary": "",
+
+    // Extra launch arguments: map, game mode, player count, hostname, ...
+    // These are added for you, so don't put them here:
+    //   -dedicated, -port (from "port"), -usercon and +rcon_password (from
+    //   "rcon_password"), +sv_setsteamaccount (from "gslt").
+    // game_type 0 + game_mode 1 = Competitive; 0 + 0 = Casual; 1 + 2 = Deathmatch.
+    "args": ["+map", "de_dust2", "-maxplayers", "10", "+game_type", "0", "+game_mode", "1"],
+
+    // Game port. Players connect over UDP; RCON uses the same number over TCP.
+    // Open UDP in your firewall; only open TCP if you need RCON from outside.
+    "port": 27015,
+
+    // Address the maintainer uses to reach its own server for health checks and
+    // RCON. 127.0.0.1 works when the maintainer runs on the same machine.
+    "query_host": "127.0.0.1",
+
+    // RCON password. Strongly recommended:
+    //   - On Windows it's the only way to stop the server cleanly (the "quit"
+    //     command). Without it the server is force-killed.
+    //   - It lets the maintainer warn players in chat before a restart.
+    // Can also be set with the CS2M_RCON_PASSWORD environment variable.
+    "rcon_password": "",
+
+    // Game Server Login Token, needed for the server to appear in the public
+    // server browser. Create one for app 730 at
+    // https://steamcommunity.com/dev/managegameservers
+    // Can also be set with the CS2M_GSLT environment variable.
+    "gslt": "",
+
+    // How long to wait for the server to save and exit after asking it to stop
+    // (SIGINT on Linux, RCON "quit" on Windows) before killing it.
+    // On Linux keep it below TimeoutStopSec in the systemd unit (60s).
+    "stop_timeout": "30s",
+
+    // Windows only (ignored on Linux). true: the server opens its own console
+    // window, like running it from a .bat file. You see its output there and
+    // can type server commands into it. false: no window; its output is captured
+    // into logs/server.log instead, and the maintainer can also spot the
+    // server's own "restart for update" notice in it. (Steam news and SteamCMD
+    // checks catch updates either way.)
+    "console_window": true
+  },
+
+  // ---------------------------------------------------------------------------
+  // Health checks: the maintainer queries the server (A2S_INFO, like the server
+  // browser does) to catch a hung server, not just a crashed one.
+  // ---------------------------------------------------------------------------
+  "health": {
+    // How often to query the server. Minimum 1s.
+    "interval": "15s",
+
+    // How long to wait for each answer. Must be shorter than interval.
+    "timeout": "2s",
+
+    // Consecutive failed checks before the server is restarted.
+    // With the defaults a hung server is restarted after about 1 minute.
+    "failure_threshold": 4,
+
+    // Failed checks don't count for this long after a start, while the server is
+    // still loading. The first successful answer ends the grace period early.
+    "boot_grace": "3m"
+  },
+
+  // ---------------------------------------------------------------------------
+  // Updates. A new CS2 build is detected in three ways:
+  //   1. Steam news posts a fresh "Counter-Strike 2 Update" (see "news").
+  //   2. The server's console says it must restart for the latest update.
+  //   3. Regular SteamCMD checks (check_interval).
+  // For 1 and 2 the update is official, so it is installed as soon as SteamCMD
+  // has the new build, even with players online (after the chat countdown).
+  // Otherwise a found update waits until ONE of these is true:
+  //   - the server is empty (bots don't count) or not running,
+  //   - the time is inside "window",
+  //   - it has waited "max_defer".
+  // If an update fails, the server is restarted on its old build and the update
+  // is retried later (2m, 4m, 8m, ... up to 1h apart).
+  // ---------------------------------------------------------------------------
+  "update": {
+    // Set to false to never update (the server is still supervised).
+    "enabled": true,
+
+    // How often to ask SteamCMD for the latest build ID. Minimum 1m.
+    "check_interval": "10m",
+
+    // Daily time range in which updates install even with players online.
+    // An end before the start crosses midnight ("23:00" to "02:00").
+    // Remove this key, or use {}, to have no window.
+    "window": { "start": "04:00", "end": "06:00" },
+
+    // Longest an update waits for an empty server or the window. Updated players
+    // can't join an outdated server, so don't wait forever. "0s" = no limit.
+    "max_defer": "30m",
+
+    // Countdown in chat (over RCON) before a planned restart, only when players
+    // are online. Messages at the start, then 30s and 10s before. "0s" = no warning.
+    "warn_before": "60s",
+
+    // Verify every game file on every update. Slow (it rehashes ~60 GB), so it's
+    // off by default; it is used automatically for the retry after SteamCMD
+    // reports a failed update.
+    "validate": false,
+
+    // Time limit for one SteamCMD "is there a new build?" check. Minimum 30s.
+    "check_timeout": "5m",
+
+    // Time limit for one SteamCMD download and install. Minimum 5m.
+    "apply_timeout": "2h"
+  },
+
+  // ---------------------------------------------------------------------------
+  // Restarts after crashes, and the optional daily restart.
+  // ---------------------------------------------------------------------------
+  "restart": {
+    // Wait before restarting after a crash. It doubles on each crash in a row
+    // (5s, 10s, 20s, ...) up to backoff_max, so a server that crashes on boot
+    // doesn't restart in a tight loop.
+    "backoff_min": "5s",
+    "backoff_max": "5m",
+
+    // A server that ran at least this long before crashing is treated as a
+    // fresh crash, and the wait goes back to backoff_min.
+    "stable_after": "10m",
+
+    // Restart the server once a day at this time, for example "05:00".
+    // null = no daily restart. Players get the same chat countdown as updates.
+    "daily_at": null,
+
+    // Skip the daily restart if the server has been up less than this
+    // (for example, it just restarted for an update).
+    "min_uptime": "1h"
+  },
+
+  // ---------------------------------------------------------------------------
+  // Steam news as an update trigger. The maintainer reads CS2's official
+  // announcements; nothing is posted anywhere. Only active when updates are enabled.
+  // ---------------------------------------------------------------------------
+  "news": {
+    // Set to false to rely on SteamCMD checks and the server console only.
+    "enabled": true,
+
+    // How often to read the news feed. Minimum 30s.
+    "interval": "2m",
+
+    // A post triggers an update when its title contains this text (any case).
+    "title": "Counter-Strike 2 Update",
+
+    // ...and when it was posted less than this long ago. Older posts are
+    // remembered but ignored (regular SteamCMD checks still catch any missed
+    // update). Each post triggers at most once. Minimum 1m.
+    "max_age": "6h"
+  },
+
+  // ---------------------------------------------------------------------------
+  // Log files. maintainer.log is the maintainer's own log (also printed to the
+  // console); server.log is the CS2 server console output.
+  // ---------------------------------------------------------------------------
+  "log": {
+    // Folder for both log files.
+    "dir": "logs",
+
+    // debug, info, warn or error. debug also logs SteamCMD output.
+    "level": "info",
+
+    // Each log rolls over to .1, .2, ... when it reaches this size in MB.
+    "max_size_mb": 20,
+
+    // How many old files to keep per log.
+    "max_files": 5,
+
+    // When the server's output is captured (always on Linux; on Windows when
+    // server.console_window is false), also show it in the maintainer's window,
+    // each line prefixed with [cs2]. It is written to server.log either way.
+    // Set to false to keep the window to the maintainer's own messages (for
+    // example under systemd, so the journal doesn't get a second copy).
+    "show_server_output": true
+  }
+}
