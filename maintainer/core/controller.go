@@ -61,18 +61,21 @@ type Controller struct {
 	hints    chan string
 	healthCh chan healthResult
 	checkCh  chan checkResult
+	requests chan func(ctx context.Context) // admin commands, run on the Run goroutine
 
 	// Everything below is only touched by the Run goroutine.
-	srv         ServerHandle
-	gen         int // bumps on every start; stale health results are dropped
-	healthy     bool
-	failures    int
-	lastInfo    A2SInfo
-	lastInfoAt  time.Time
-	crashStreak int
-	restartC    <-chan time.Time
-	probing     bool
-	recovering  bool // restarted after a crash or hang; alert when it is back up
+	srv          ServerHandle
+	gen          int // bumps on every start; stale health results are dropped
+	healthy      bool
+	failures     int
+	lastInfo     A2SInfo
+	lastInfoAt   time.Time
+	crashStreak  int
+	restartC     <-chan time.Time
+	probing      bool
+	recovering   bool // restarted after a crash or hang; alert when it is back up
+	adminStopped bool // /stop was used; don't start the server until /restart
+	lastStartErr error
 
 	installed    string
 	pending      string // build waiting to be installed
@@ -84,6 +87,7 @@ type Controller struct {
 	retryAt      time.Time
 	checking     bool
 	lastCheck    time.Time
+	checkWaiters []chan checkAnswer // /checkupdate callers waiting for the running check
 	lastDaily    string
 }
 
@@ -101,6 +105,7 @@ func NewController(cfg *Config, log *slog.Logger, state *StateStore, notify *Dis
 		hints:        make(chan string, 1),
 		healthCh:     make(chan healthResult, 1),
 		checkCh:      make(chan checkResult, 1),
+		requests:     make(chan func(context.Context)),
 	}
 	addr := cfg.QueryAddr()
 	c.Probe = func(ctx context.Context) (A2SInfo, error) { return QueryA2SInfo(ctx, addr) }
@@ -141,6 +146,9 @@ func (c *Controller) Run(ctx context.Context) {
 		if now := c.Now(); now.Hour()*60+now.Minute() >= at.minutes() {
 			c.lastDaily = now.Format(time.DateOnly)
 		}
+	}
+	if c.adminStopped = c.state.Get().StoppedByAdmin; c.adminStopped {
+		c.log.Warn("the server was stopped from Discord and stays stopped until /restart")
 	}
 	c.prepareInstall(ctx)
 	c.startServer(ctx)
@@ -185,6 +193,8 @@ func (c *Controller) Run(ctx context.Context) {
 			c.onCheck(ctx, r)
 		case <-evalTick.C:
 			c.evaluate(ctx)
+		case fn := <-c.requests:
+			fn(ctx)
 		}
 	}
 }
@@ -218,11 +228,12 @@ func (c *Controller) prepareInstall(ctx context.Context) {
 }
 
 func (c *Controller) startServer(ctx context.Context) {
-	if ctx.Err() != nil || c.srv != nil {
+	if ctx.Err() != nil || c.srv != nil || c.adminStopped {
 		return
 	}
 	c.restartC = nil
 	srv, err := c.Launch()
+	c.lastStartErr = err
 	if err != nil {
 		c.crashStreak++
 		delay := Backoff(c.crashStreak, c.cfg.Restart.BackoffMin.Duration, c.cfg.Restart.BackoffMax.Duration)
@@ -362,6 +373,7 @@ func (c *Controller) onCheck(ctx context.Context, r checkResult) {
 		if ctx.Err() == nil {
 			c.log.Warn("update check failed", "err", r.err)
 		}
+		c.answerChecks(UpdateCheckResult{Installed: c.installed}, r.err)
 		return
 	}
 	c.refreshInstalled()
@@ -371,6 +383,7 @@ func (c *Controller) onCheck(ctx context.Context, r checkResult) {
 			c.log.Info("pending update is no longer needed", "installed", c.installed)
 			c.pending = ""
 		}
+		c.answerChecks(UpdateCheckResult{Installed: c.installed, Latest: r.latest}, nil)
 		return
 	}
 	if c.pending != r.latest {
@@ -382,7 +395,16 @@ func (c *Controller) onCheck(ctx context.Context, r checkResult) {
 		c.alert(LevelInfo, "CS2 update available",
 			fmt.Sprintf("Build %s → %s. %s", orUnknown(c.installed), r.latest, c.updatePolicy()))
 	}
+	// Answer /checkupdate before evaluate, which may spend minutes installing.
+	c.answerChecks(UpdateCheckResult{Installed: c.installed, Latest: r.latest, Available: true, Policy: c.updatePolicy()}, nil)
 	c.evaluate(ctx)
+}
+
+func (c *Controller) answerChecks(res UpdateCheckResult, err error) {
+	for _, ch := range c.checkWaiters {
+		ch <- checkAnswer{res, err} // buffered, never blocks
+	}
+	c.checkWaiters = nil
 }
 
 func (c *Controller) refreshInstalled() {
@@ -420,6 +442,8 @@ func (c *Controller) evaluate(ctx context.Context) {
 func (c *Controller) updateReason(now time.Time) string {
 	maxDefer := c.cfg.Update.MaxDefer.Duration
 	switch {
+	case c.adminStopped:
+		return "" // an admin is in charge; /restart installs it
 	case c.srv == nil:
 		return "server is not running"
 	case !c.healthy:
@@ -437,6 +461,9 @@ func (c *Controller) updateReason(now time.Time) string {
 }
 
 func (c *Controller) updatePolicy() string {
+	if c.adminStopped {
+		return "The server is stopped; the update installs on /restart."
+	}
 	var parts []string
 	parts = append(parts, "Installs when the server is empty")
 	if w := c.cfg.Update.Window; w.Enabled() {
@@ -457,7 +484,7 @@ func (c *Controller) applyUpdate(ctx context.Context, reason string) {
 	c.log.Info("applying update", "from", orUnknown(c.installed), "to", target, "reason", reason)
 	c.alert(LevelInfo, "CS2 server restarting for an update",
 		fmt.Sprintf("Installing build %s (%s).", target, reason))
-	c.warnPlayers(ctx, "a CS2 update")
+	c.warnPlayers(ctx, "Server restarting for a CS2 update")
 	if ctx.Err() != nil {
 		return
 	}
@@ -511,7 +538,7 @@ func (c *Controller) maybeDailyRestart(ctx context.Context, now time.Time) {
 	}
 	c.log.Info("scheduled daily restart")
 	c.alert(LevelInfo, "CS2 server restarting", "Scheduled daily restart.")
-	c.warnPlayers(ctx, "a scheduled restart")
+	c.warnPlayers(ctx, "Server restarting for a scheduled restart")
 	if ctx.Err() != nil {
 		return
 	}
@@ -519,8 +546,8 @@ func (c *Controller) maybeDailyRestart(ctx context.Context, now time.Time) {
 	c.startServer(ctx)
 }
 
-// warnPlayers counts down in chat before a planned restart. It returns at once
-// when nobody is playing or RCON isn't configured.
+// warnPlayers counts down in chat ("<what> in 60 seconds") before a planned
+// restart or stop. It returns at once when nobody is playing or RCON isn't configured.
 func (c *Controller) warnPlayers(ctx context.Context, what string) {
 	total := c.cfg.Update.WarnBefore.Duration
 	if c.RCON == nil || c.srv == nil || total <= 0 || !c.healthy ||
@@ -529,7 +556,7 @@ func (c *Controller) warnPlayers(ctx context.Context, what string) {
 	}
 	done := c.srv.Done()
 	for remaining := total; remaining > 0; {
-		msg := fmt.Sprintf("say Server restarting for %s in %s", what, countdownText(remaining))
+		msg := fmt.Sprintf("say %s in %s", what, countdownText(remaining))
 		if err := c.RCON(ctx, msg); err != nil {
 			c.log.Warn("could not warn players over RCON", "err", err)
 			return

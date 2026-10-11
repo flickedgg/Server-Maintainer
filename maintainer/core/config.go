@@ -87,6 +87,11 @@ type Config struct {
 	// server restarts. Empty disables alerts.
 	DiscordWebhook string `json:"discord_webhook"`
 
+	// DiscordBotToken enables the admin bot (/restart, /stop, /checkupdate,
+	// /health). Only members with ServerManagerRoleID can use it. Optional.
+	DiscordBotToken     string `json:"discord_bot_token"`
+	ServerManagerRoleID string `json:"server_manager_role_id"`
+
 	// GameInfoSearchPaths are "Game" search paths (such as csgo/addons/metamod)
 	// re-added to game/csgo/gameinfo.gi before every server start, because CS2
 	// updates replace that file.
@@ -281,6 +286,9 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("CS2M_DISCORD_WEBHOOK"); v != "" {
 		c.DiscordWebhook = v
 	}
+	if v := os.Getenv("CS2M_DISCORD_BOT_TOKEN"); v != "" {
+		c.DiscordBotToken = v
+	}
 }
 
 func (c *Config) resolvePaths(base string) {
@@ -391,6 +399,14 @@ func (c *Config) Validate() (warnings []string, err error) {
 	} else {
 		warnings = append(warnings, "no discord_webhook: admins won't be alerted about crashes, restarts or updates")
 	}
+	switch {
+	case c.DiscordBotToken != "" && c.ServerManagerRoleID == "":
+		bad("server_manager_role_id is required with discord_bot_token, or anyone could stop the server")
+	case c.DiscordBotToken != "" && !isSnowflake(c.ServerManagerRoleID):
+		bad("server_manager_role_id must be a numeric Discord role ID (right-click the role > Copy Role ID), got %q", c.ServerManagerRoleID)
+	case c.DiscordBotToken == "" && c.ServerManagerRoleID != "":
+		warnings = append(warnings, "server_manager_role_id is set but discord_bot_token isn't, so the Discord bot is off")
+	}
 
 	var lvl slog.Level
 	if err := lvl.UnmarshalText([]byte(c.Log.Level)); err != nil {
@@ -419,6 +435,19 @@ func (c *Config) Validate() (warnings []string, err error) {
 		warnings = append(warnings, "no server.gslt: the server won't be listed in the public server browser")
 	}
 	return warnings, errors.Join(errs...)
+}
+
+// isSnowflake reports whether s looks like a Discord ID.
+func isSnowflake(s string) bool {
+	if len(s) < 15 || len(s) > 21 {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Config) GameInfoPath() string {

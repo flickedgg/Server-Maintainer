@@ -134,6 +134,18 @@ func run() int {
 		}()
 	}
 
+	if cfg.DiscordBotToken != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			bot := core.NewBot(cfg.DiscordBotToken, cfg.ServerManagerRoleID, ctrl, log)
+			if err := bot.Run(ctx); err != nil {
+				log.Error("discord bot stopped", "err", err)
+				notifier.Notify(core.Event{Level: core.LevelError, Title: "Discord bot stopped", Text: err.Error()})
+			}
+		}()
+	}
+
 	if err := runController(ctx, ctrl); err != nil {
 		stop()
 		wg.Wait()

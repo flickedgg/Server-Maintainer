@@ -15,6 +15,9 @@ func TestExampleConfigLoadsAndMatchesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.example.json doesn't load: %v", err)
 	}
+	if cfg.DiscordBotToken != "" || cfg.ServerManagerRoleID != "" {
+		t.Error("the example must ship with the bot off")
+	}
 	def := core.DefaultConfig()
 	checks := map[string][2]any{
 		"health":                {cfg.Health, def.Health},
