@@ -1,0 +1,131 @@
+# Tests the maintainer, builds the Windows .exe and Linux binary, and packages
+# each with config.example.json.
+#   - Every push and pull request: test, then build. The packages are attached to
+#     the workflow run (Actions tab > the run > Artifacts).
+#   - Pushing a tag like v1.0.0: the same, plus a GitHub Release with both packages.
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: maintainer
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Go ${{ matrix.go }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        go: [stable]
+        include:
+          # The oldest Go the README promises (go.mod says 1.22).
+          - os: ubuntu-latest
+            go: "1.22"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: maintainer/go.sum
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Run gofmt -w on:"; echo "$unformatted"; exit 1
+          fi
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+
+  build:
+    name: Build ${{ matrix.goos }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: windows
+            binary: cs2-maintainer.exe
+          - goos: linux
+            binary: cs2-maintainer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: maintainer/go.sum
+
+      - name: Pick a version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }}" \
+            -o "dist/${{ matrix.binary }}" .
+
+      - name: Package
+        id: package
+        run: |
+          name="cs2-maintainer-${{ steps.version.outputs.version }}-${{ matrix.goos }}-amd64"
+          mkdir -p "pkg/$name"
+          cp "dist/${{ matrix.binary }}" config.example.json ../README.md ../LICENSE "pkg/$name/"
+          cd pkg
+          if [ "${{ matrix.goos }}" = windows ]; then
+            zip -r "$name.zip" "$name"
+            echo "file=maintainer/pkg/$name.zip" >> "$GITHUB_OUTPUT"
+          else
+            cp ../deploy/cs2-maintainer.service "$name/"
+            tar -czf "$name.tar.gz" "$name"
+            echo "file=maintainer/pkg/$name.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.file }}
+          if-no-files-found: error
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      - name: Create the GitHub release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" packages/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

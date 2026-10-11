@@ -2,6 +2,7 @@
 
 [![Status](https://img.shields.io/badge/Status-Work%20in%20Progress-orange)](https://github.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Build](https://github.com/flickedgg/Server-Maintainer/actions/workflows/build.yml/badge.svg)](https://github.com/flickedgg/Server-Maintainer/actions/workflows/build.yml)
 
 An automated management and maintenance utility for **Counter-Strike 2** dedicated servers. Designed to keep your CS2 server updated, healthy, and running smoothly without manual intervention.
 
@@ -37,22 +38,54 @@ Before installing, ensure you have the following installed on your host system:
 
 ## 🚀 Quick Start
 
-Requires Go 1.22+ to build. The result is a single binary; the only library it uses is `discordgo`, for the optional bot.
+**Download:** grab `cs2-maintainer-<version>-windows-amd64.zip` or `-linux-amd64.tar.gz` from [Releases](https://github.com/flickedgg/Server-Maintainer/releases). Each one holds the program and `config.example.json`; rename that to `config.json` and edit it. Builds of every commit are under [Actions](https://github.com/flickedgg/Server-Maintainer/actions/workflows/build.yml): open a run, then Artifacts.
+
+To publish a release, push a version tag. The workflow tests, builds, and creates the release with both packages:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+**Build it yourself:** requires Go 1.22+. The result is a single binary; the only library it uses is `discordgo`, for the optional bot.
+
+**Windows (PowerShell):**
+
+```powershell
+cd maintainer
+copy config.example.json config.json    # then edit paths, args, rcon_password, gslt
+go build -o cs2-maintainer.exe .
+.\cs2-maintainer.exe -validate          # checks the config and prints the launch command
+.\cs2-maintainer.exe -check-update      # installed vs. latest build, without touching anything
+.\cs2-maintainer.exe                    # run it
+```
+
+**Linux:**
 
 ```bash
 cd maintainer
-cp config.example.json config.json   # then edit paths, args, rcon_password, gslt
+cp config.example.json config.json      # then edit paths, args, rcon_password, gslt
 go build -o cs2-maintainer .
-./cs2-maintainer -validate           # checks the config and prints the launch command
-./cs2-maintainer -check-update       # installed vs. latest build, without touching anything
-./cs2-maintainer                     # run it
+./cs2-maintainer -validate
+./cs2-maintainer -check-update
+./cs2-maintainer
 ```
+
+On Windows, the name after `-o` is used exactly as written, so keep the `.exe`. Plain `go build` (no `-o`) also works and names the file `cs2-maintainer.exe` or `cs2-maintainer` for you.
 
 If `install_dir` has no CS2 install yet, the first run installs it with SteamCMD.
 
-Cross-compile from any OS:
+Cross-compile, for example to build the Linux binary on Windows:
+
+```powershell
+# PowerShell
+$env:GOOS="linux";   $env:GOARCH="amd64"; go build -o dist/cs2-maintainer .
+$env:GOOS="windows"; $env:GOARCH="amd64"; go build -o dist/cs2-maintainer.exe .
+Remove-Item Env:GOOS, Env:GOARCH         # back to building for this PC
+```
 
 ```bash
+# bash
 GOOS=linux   GOARCH=amd64 go build -o dist/cs2-maintainer .
 GOOS=windows GOARCH=amd64 go build -o dist/cs2-maintainer.exe .
 ```
