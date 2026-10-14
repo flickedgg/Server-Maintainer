@@ -6,3 +6,4 @@ logs/
 dist/
 cs2-maintainer
 cs2-maintainer.exe
+pkg/

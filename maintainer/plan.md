@@ -25,6 +25,7 @@ These fix failure modes the first plan would have hit in production:
 | Tests | Next to the code | `tests/` folder, against the exported `core` API | Keeps the code folders clean. The logic moved from `package main` to `core`, since `main` can't be imported. |
 | Scheduled restarts | Not covered (README promised them) | Optional `restart.daily_at` | |
 | Mods after an update | Not covered | `gameinfo_search_paths` re-added to `gameinfo.gi` before every start | Updates and `validate` replace `gameinfo.gi`, which drops `Game csgo/addons/metamod` and with it every plugin. |
+| Remote control | Not covered | Optional Discord bot: `/restart`, `/stop`, `/checkupdate`, `/health`, limited to one role | Admins can act from their phone. Commands go through the controller like any other event, so they can't race a crash restart or an update. |
 | Linux `steamclient.so` | Not covered | Copied to `~/.steam/sdk64/` automatically | This is the most common reason a fresh Linux CS2 server fails to start. |
 | First run | Assumes CS2 is installed | Installs CS2 if the manifest is missing | |
 | Config paths | Relative to working dir | Relative to the config file | A service started from another directory still finds its files. |
@@ -92,6 +93,16 @@ An announcement stays "urgent" for 30 minutes. During that time SteamCMD is re-c
 - Insert missing lines right after `Game_LowViolence`, or before the first `Game` line if that's missing, so they mount before the stock `Game csgo`. Keep the file's indentation and line endings. Recognize existing lines regardless of quotes, slashes or case. Rewrite the file (atomically) only when something was missing.
 - Patching at start rather than after `app_update` also covers manual `validate` runs and updates done outside the maintainer.
 - If the file can't be patched (missing, no `SearchPaths`), start anyway and alert admins once that plugins won't load.
+
+## Phase 6c: Discord admin bot (optional)
+
+- Enabled by `discord_bot_token`, and only with `server_manager_role_id`, so a token can't be configured without a role check. Uses `discordgo` (Gateway WebSocket), the project's only dependency.
+- Registers four guild-only slash commands. Members without the role get an ephemeral denial. Every use is logged and alerted with the user's name.
+- `/restart`: countdown, stop, start, and installs a pending update in the same restart. It also starts the server after `/stop`.
+- `/stop`: countdown, then stop. It sets `stopped_by_admin` in the state file, so the server stays down until `/restart`, even across maintainer restarts. Crash restarts, updates and the daily restart leave it alone.
+- `/checkupdate`: runs a SteamCMD check now, or joins one already running. It replies with the result; the install itself follows the normal policy.
+- `/health`: state (online, starting, not responding, restarting, stopped), map, players, uptime, build, pending update, last check.
+- Each command runs as a request on the controller goroutine. Replies are deferred, because Discord drops interactions not answered within 3s. A bad token fails fast with an alert; network errors retry with backoff.
 
 ## Phase 7: News as an update trigger, Discord for admins
 

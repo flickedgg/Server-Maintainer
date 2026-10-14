@@ -25,6 +25,9 @@ type State struct {
 	LastUpdateAt time.Time `json:"last_update_at"`
 	ServerStarts int       `json:"server_starts"`
 	Crashes      int       `json:"crashes"`
+	// StoppedByAdmin is set by /stop on Discord and cleared by /restart. While
+	// set, the server stays down, even across maintainer restarts.
+	StoppedByAdmin bool `json:"stopped_by_admin"`
 }
 
 type StateStore struct {

@@ -42,6 +42,30 @@
   // Must be https. Can also be set with the CS2M_DISCORD_WEBHOOK environment variable.
   "discord_webhook": "",
 
+  // Optional Discord bot for admins, with four slash commands:
+  //   /health       status, map, players, installed build, pending update
+  //   /restart      restart the server (players get the chat countdown), or start
+  //                 it again after /stop. Installs a pending update in the same restart.
+  //   /stop         stop the server. It stays down, even if the maintainer itself
+  //                 restarts, until someone runs /restart.
+  //   /checkupdate  ask Steam for a new CS2 build right now
+  // Only members with server_manager_role_id can use them; anyone else gets a
+  // private "you need the role" reply. Every use is logged and posted to
+  // discord_webhook with the user's name. Leave empty to turn the bot off.
+  //
+  // Setup: https://discord.com/developers/applications > New Application >
+  // Bot > Reset Token, and paste the token here. Then OAuth2 > URL Generator >
+  // tick the scopes "bot" and "applications.commands", open the generated URL
+  // and invite the bot to your Discord server. No permissions or privileged
+  // intents are needed. Commands can take a minute to appear the first time.
+  // Can also be set with the CS2M_DISCORD_BOT_TOKEN environment variable.
+  "discord_bot_token": "",
+
+  // ID of the Discord role allowed to use the bot. To copy it: Discord settings
+  // > Advanced > turn on Developer Mode, then Server Settings > Roles >
+  // right-click the role > Copy Role ID. Required when the bot is on.
+  "server_manager_role_id": "",
+
   // Search paths kept in game/csgo/gameinfo.gi. CS2 updates (and SteamCMD
   // "validate") replace that file, which removes lines such as
   // "Game csgo/addons/metamod" and with them all your plugins. Before every
