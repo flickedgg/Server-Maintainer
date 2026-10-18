@@ -1,16 +1,16 @@
 # 🎮 CS2 Server Maintainer
 
-[![Status](https://img.shields.io/badge/Status-Work%20in%20Progress-orange)](https://github.com/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Build](https://github.com/flickedgg/Server-Maintainer/actions/workflows/build.yml/badge.svg)](https://github.com/flickedgg/Server-Maintainer/actions/workflows/build.yml)
+![Version](https://shieldcn.dev/badge/Version:-Beta.svg?variant=secondary&logo=ri%3AFaTag)
+[![LICENSE](https://shieldcn.dev/github/flickedgg/flicked/license.svg?variant=branded)](https://github.com/flickedgg/Server-Maintainer)
+[![badge](https://shieldcn.dev/github/flickedgg/Server-Maintainer/release.svg?variant=branded)](https://github.com/flickedgg/Server-Maintainer/releases)
 
 An automated management and maintenance utility for **Counter-Strike 2** dedicated servers. Designed to keep your CS2 server updated, healthy, and running smoothly without manual intervention.
 
 ---
 
-## 🚧 Status: Work in Progress
+## 🚧 Status: Beta version
 
-> **Note**: This project is actively under development. Features, setup procedures, and configurations are subject to rapid change. 
+> **Note**: This project is actively under development. Features, setup procedures, and configurations are subject to rapid change. Please report bugs at issues.
 
 ---
 
@@ -24,6 +24,15 @@ An automated management and maintenance utility for **Counter-Strike 2** dedicat
 - 🤖 **Discord Admin Bot** *(optional)*: `/restart`, `/stop`, `/checkupdate` and `/health` slash commands, limited to one role.
 - 🧱 **Safe by default**: Clean shutdown (SIGINT on Linux, RCON `quit` on Windows). The server can't outlive the maintainer. A lock stops a second maintainer from running. State is written atomically and logs rotate.
 - 🛠 **Configurable Hooks** *(planned)*: Run custom scripts before and after an update.
+
+---
+
+## 🤖 Preview
+
+<img width="599" height="559" alt="image" src="https://github.com/user-attachments/assets/4be9e466-28d8-46e1-b318-ad61007f7150" />
+<img width="457" height="337" alt="image" src="https://github.com/user-attachments/assets/cf49ac8d-bd11-4bf5-a0fa-83da8f9f0482" />
+
+
 
 ---
 
